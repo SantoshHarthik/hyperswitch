@@ -8,6 +8,7 @@ pub mod operations;
 pub mod session_token;
 
 pub mod client_session;
+pub mod connector_health;
 #[cfg(feature = "retry")]
 pub mod retry;
 pub mod routing;

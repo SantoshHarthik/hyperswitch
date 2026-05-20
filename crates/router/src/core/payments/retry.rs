@@ -155,6 +155,11 @@ where
                         break;
                     }
 
+                    super::connector_health::record_failure(
+                        &router_data.connector.to_string(),
+                    )
+                    .await;
+
                     let is_network_token = payment_data
                         .get_payment_method_data()
                         .map(|pmd| pmd.is_network_token_payment_method_data())
@@ -197,16 +202,42 @@ where
                         // If should_retry_with_pan is true, it indicates that we are retrying with PAN using the same connector.
                         (original_connector_data.clone(), None)
                     } else {
-                        let connector_routing_data =
-                            super::get_connector_data(&mut connector_routing_data)?;
-                        let routing_decision = connector_routing_data.network.map(|card_network| {
-                            routing_helpers::RoutingDecisionData::get_debit_routing_decision_data(
-                                card_network,
-                                None,
-                            )
-                        });
+                        let remaining: Vec<_> = connector_routing_data.collect();
+                        let names: Vec<String> = remaining
+                            .iter()
+                            .map(|c| c.connector_data.connector_name.to_string())
+                            .collect();
+                        let name_refs: Vec<&str> =
+                            names.iter().map(String::as_str).collect();
 
-                        (connector_routing_data.connector_data, routing_decision)
+                        let best_name = super::connector_health::pick_best(&name_refs)
+                            .await
+                            .unwrap_or_else(|| {
+                                names.first().cloned().unwrap_or_default()
+                            });
+
+                        logger::info!(
+                            failed_connector = %router_data.connector,
+                            chosen_connector = %best_name,
+                            "adaptive_retry: picked connector with fewest failures in 10-min window"
+                        );
+
+                        let idx = names
+                            .iter()
+                            .position(|n| n == &best_name)
+                            .unwrap_or(0);
+                        let mut remaining = remaining;
+                        let selected = remaining.remove(idx);
+                        connector_routing_data = remaining.into_iter();
+
+                        let routing_decision =
+                            selected.network.map(|card_network| {
+                                routing_helpers::RoutingDecisionData::get_debit_routing_decision_data(
+                                    card_network,
+                                    None,
+                                )
+                            });
+                        (selected.connector_data, routing_decision)
                     };
 
                     router_data = Box::pin(do_retry(

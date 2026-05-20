@@ -1,0 +1,12 @@
+[package]
+name = "connector_health"
+description = "In-memory connector health tracker for adaptive retry"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
